@@ -164,7 +164,7 @@ def SecretToASecret(privkey):
 
 def ASecretToSecret(key):
 	vch = DecodeBase58Check(key)
-	if vch:
+	if vch and vch[0] == chr(addrtype + 128):
 		return vch[1:]
 	else:
 		return False
