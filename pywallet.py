@@ -28,7 +28,6 @@ import hashlib
 from ctypes import *
 
 max_version = 32400
-
 addrtype = 0
 json_db = {}
 private_keys = []
