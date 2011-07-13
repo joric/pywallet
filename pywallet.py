@@ -159,7 +159,7 @@ def DecodeBase58Check(psz):
 def SecretToASecret(privkey):
 	vchSecret = privkey[9:9+32]
 	# add 1-byte version number
-	vchIn = "\x80" + vchSecret
+	vchIn = chr(addrtype+128) + vchSecret
 	return EncodeBase58Check(vchIn)
 
 def ASecretToSecret(key):
@@ -706,7 +706,6 @@ def main():
 
 	if options.dump:		
 		print json.dumps(json_db, sort_keys=True, indent=4)
-
 	elif options.key:
 		if json_db['version'] > max_version:
 			print "Version mismatch (must be <= %d)" % max_version
