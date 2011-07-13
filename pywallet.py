@@ -42,8 +42,8 @@ def determine_db_dir():
 		return os.path.join(os.environ['APPDATA'], "Bitcoin")
 	return os.path.expanduser("~/.bitcoin")
 
-# Had to import i2d_ECPrivateKey/i2o_ECPublicKey from the system.
-# Looks like PyCrypto/M2Crypto/pyOpenSSL do not support them.
+# Had to import i2d_ECPrivateKey/i2o_ECPublicKey from dynamic libs.
+# Looks like PyCrypto/M2Crypto/pyOpenSSL modules do not support them.
 
 dlls = list()
 if 'win' in sys.platform:
@@ -276,9 +276,7 @@ def short_hex(bytes):
 		return t
 	return t[0:32]+"..."+t[-32:]
 
-def create_env(db_dir=None):
-	if db_dir is None:
-		db_dir = determine_db_dir()
+def create_env(db_dir):
 	db_env = DBEnv(0)
 	r = db_env.open(db_dir, (DB_CREATE|DB_INIT_LOCK|DB_INIT_LOG|DB_INIT_MPOOL|DB_INIT_TXN|DB_THREAD|DB_RECOVER))
 	return db_env
@@ -297,7 +295,18 @@ def parse_CAddress(vds):
 	return d
 
 def deserialize_CAddress(d):
-	return d['ip']+":"+str(d['port'])#+" (lastseen: %s)"%(time.ctime(d['nTime']),)
+	return d['ip']+":"+str(d['port'])
+
+def parse_BlockLocator(vds):
+	d = { 'hashes' : [] }
+	nHashes = vds.read_compact_size()
+	for i in xrange(nHashes):
+		d['hashes'].append(vds.read_bytes(32))
+		return d
+
+def deserialize_BlockLocator(d):
+  result = "Block Locator top: "+d['hashes'][0][::-1].encode('hex_codec')
+  return result
 
 def parse_setting(setting, vds):
 	if setting[0] == "f":	# flag (boolean) settings
@@ -490,6 +499,9 @@ def parse_wallet(db, item_callback):
 				d['nTime'] = vds.read_int64()
 				d['otherAccount'] = vds.read_string()
 				d['comment'] = vds.read_string()
+			elif type == "bestblock":
+				d['nVersion'] = vds.read_int32()
+				d.update(parse_BlockLocator(vds))
 			
 			item_callback(type, d)
 
@@ -631,6 +643,9 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 		elif type == "acentry":
 			json_db['acentry'] = (d['account'], d['nCreditDebit'], d['otherAccount'], time.ctime(d['nTime']), d['n'], d['comment'])
 
+		elif type == "bestblock":
+			json_db['bestblock'] = d['hashes'][0][::-1].encode('hex_codec')
+
 		else:
 			json_db[type] = 'unsupported'
 
@@ -641,7 +656,7 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
 	for k in json_db['keys']:
 		addr = k['addr']
-		if (addr in json_db['names'].keys()):
+		if addr in json_db['names'].keys():
 			k["label"] = json_db['names'][addr]
 		else:
 			k["reserve"] = 1
@@ -652,6 +667,9 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 from optparse import OptionParser
 
 def main():
+
+	global max_version, addrtype
+
 	parser = OptionParser(usage="%prog [options]", version="%prog 1.0")
 
 	parser.add_option("--dumpwallet", dest="dump", action="store_true",
@@ -662,6 +680,9 @@ def main():
 
 	parser.add_option("--datadir", dest="datadir", 
 		help="wallet directory (defaults to bitcoin default)")
+
+	parser.add_option("--testnet", dest="testnet", action="store_true",
+		help="use testnet subdirectory and address type")
 
 	(options, args) = parser.parse_args()
 
@@ -674,6 +695,10 @@ def main():
 		db_dir = determine_db_dir()
 	else:
 		db_dir = options.datadir
+
+	if options.testnet:
+		db_dir += "/testnet"
+		addrtype = 111
 
 	db_env = create_env(db_dir)
 

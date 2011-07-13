@@ -6,3 +6,4 @@ Options:
   --dumpwallet         dump wallet in json format
   --importprivkey=KEY  import private key from vanitygen
   --datadir=DATADIR    wallet directory (defaults to bitcoin default)
+  --testnet            use testnet subdirectory and address type
