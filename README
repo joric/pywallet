@@ -1,7 +1,3 @@
-pywallet.py 1.0
-
-based on http://github.com/gavinandresen/bitcointools
-
 Usage: pywallet.py [options]
 
 Options:

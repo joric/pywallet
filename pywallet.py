@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# pywallet.py 1.1
+# pywallet.py 1.0
 #
 # based on http://github.com/gavinandresen/bitcointools
 #
@@ -27,9 +27,11 @@ import exceptions
 import hashlib
 from ctypes import *
 
+max_version = 32400
+
+addrtype = 0
 json_db = {}
 private_keys = []
-addrtype = 0
 
 def determine_db_dir():
 	import os
@@ -166,7 +168,6 @@ def ASecretToSecret(key):
 		return False
 
 def importprivkey(db, key):
-
 	vchSecret = ASecretToSecret(key)
 
 	if not vchSecret:
@@ -281,7 +282,7 @@ def create_env(db_dir=None):
 	return db_env
 
 def parse_CAddress(vds):
-	d = {'ip':'0.0.0.0','port':0,'ntime': 0}
+	d = {'ip':'0.0.0.0','port':0,'nTime': 0}
 	try:
 		d['nVersion'] = vds.read_int32()
 		d['nTime'] = vds.read_uint32()
@@ -682,7 +683,11 @@ def main():
 		print json.dumps(json_db, sort_keys=True, indent=4)
 
 	elif options.key:
-		if (options.key not in private_keys):
+		if json_db['version'] > max_version:
+			print "Version mismatch (must be <= %d)" % max_version
+		elif options.key in private_keys:
+			print "Already exists"
+		else:	
 			db = open_wallet(db_env, writable=True)
 
 			if importprivkey(db, options.key):
@@ -691,8 +696,6 @@ def main():
 				print "Bad private key"
 
 			db.close()
-		else:
-			print "Already exists"
 
 if __name__ == '__main__':
 	main()
