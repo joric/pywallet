@@ -42,6 +42,9 @@ def determine_db_dir():
 		return os.path.join(os.environ['APPDATA'], "Bitcoin")
 	return os.path.expanduser("~/.bitcoin")
 
+# Had to import i2d_ECPrivateKey/i2o_ECPublicKey from the system.
+# Looks like PyCrypto/M2Crypto/pyOpenSSL do not support them.
+
 dlls = list()
 if 'win' in sys.platform:
     for d in ('libeay32.dll', 'libssl32.dll', 'ssleay32.dll'):
@@ -451,7 +454,6 @@ def parse_wallet(db, item_callback):
 		try:
 			if type == "tx":
 				d["tx_id"] = kds.read_bytes(32)
-        		#d.update(parse_WalletTx(vds))
 			elif type == "name":
 				d['hash'] = kds.read_string()
 				d['name'] = vds.read_string()
@@ -518,7 +520,6 @@ def update_wallet(db, type, data):
 		if type == "tx":
 			raise NotImplementedError("Writing items of type 'tx'")
 			kds.write(d['tx_id'])
-			#d.update(parse_WalletTx(vds))
 		elif type == "name":
 			kds.write_string(d['hash'])
 			vds.write_string(d['name'])
