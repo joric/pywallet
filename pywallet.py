@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+#
 # pywallet.py 1.0
 #
 # based on http://github.com/gavinandresen/bitcointools
@@ -22,9 +24,7 @@ import socket
 import types
 import string
 import exceptions
-import Crypto.Hash.SHA256 as SHA256
-import Crypto.Hash.RIPEMD160 as RIPEMD160
-from Crypto.PublicKey.pubkey import *
+import hashlib
 from ctypes import *
 
 TESTNET = 0
@@ -130,8 +130,12 @@ def GetPubKey(pkey):
 	return p.raw
 
 def Hash(data):
-	h1 = SHA256.new(data).digest()
-	h2 = SHA256.new(h1).digest()
+	s1 = hashlib.sha256()
+	s1.update(data)
+	h1 = s1.digest()
+	s2 = hashlib.sha256()
+	s2.update(h1)
+	h2 = s2.digest()
 	return h2
 
 def EncodeBase58Check(vchIn):
@@ -140,13 +144,14 @@ def EncodeBase58Check(vchIn):
 
 def DecodeBase58Check(psz):
 	vchRet = b58decode(psz, None)
-	vch = vchRet[0:-4]
-	chk = vchRet[-4:]
-	hash = Hash(vch)[0:4]
-	if hash != chk:
+	key = vchRet[0:-4]
+	csum = vchRet[-4:]
+	hash = Hash(key)
+	cs32 = hash[0:4]
+	if cs32 != csum:
 		return None
 	else:
-		return vch
+		return key
 
 def SecretToASecret(privkey):
 	vchSecret = privkey[9:9+32]
@@ -180,13 +185,8 @@ def importprivkey(db, key):
 	print "Address: %s" % addr
 	print "Privkey: %s" % SecretToASecret(private_key)
 
-	type = 'key'
-	data = { 'public_key' : public_key, 'private_key' : private_key }
-	update_wallet(db, type, data)
-
-	type = 'name'
-	data = { 'hash' : addr, 'name' : '' }
-	update_wallet(db, type, data)
+	update_wallet(db, 'key', { 'public_key' : public_key, 'private_key' : private_key })
+	update_wallet(db, 'name', { 'hash' : addr, 'name' : '' })
 
 	return True
 
@@ -243,8 +243,12 @@ def b58decode(v, length):
 	return result
 
 def hash_160(public_key):
-	h1 = SHA256.new(public_key).digest()
-	h2 = RIPEMD160.new(h1).digest()
+	s1 = hashlib.sha256()
+	s1.update(public_key)
+	h1 = s1.digest()
+	s2 = hashlib.new('ripemd160')
+	s2.update(h1)
+	h2 = s2.digest()
 	return h2
 
 def public_key_to_bc_address(public_key):
@@ -258,8 +262,8 @@ def hash_160_to_bc_address(h160):
 	else:
 		vh160 = "\x00" + h160	# \x00 is version 0
 
-	h3=SHA256.new(SHA256.new(vh160).digest()).digest()
-	addr=vh160+h3[0:4]
+	h3 = Hash(vh160)
+	addr = vh160 + h3[0:4]
 	return b58encode(addr)
 
 def bc_address_to_hash_160(addr):
@@ -279,12 +283,19 @@ def create_env(db_dir=None):
 	if db_dir is None:
 		db_dir = determine_db_dir()
 	db_env = DBEnv(0)
-	r = db_env.open(db_dir, (DB_CREATE|DB_INIT_LOCK|DB_INIT_LOG|DB_INIT_MPOOL| DB_INIT_TXN|DB_THREAD|DB_RECOVER))
+	r = db_env.open(db_dir, (DB_CREATE|DB_INIT_LOCK|DB_INIT_LOG|DB_INIT_MPOOL|DB_INIT_TXN|DB_THREAD|DB_RECOVER))
 	return db_env
 
 def parse_CAddress(vds):
+
 	d = {}
+
 	d['nVersion'] = vds.read_int32()
+	if d['nVersion'] > 32400:
+		d['ip'] = '0.0.0.0'
+		d['port'] = 0
+		return d		
+
 	d['nTime'] = vds.read_uint32()
 	d['nServices'] = vds.read_uint64()
 	d['pchReserved'] = vds.read_bytes(12)
@@ -293,7 +304,7 @@ def parse_CAddress(vds):
 	return d
 
 def deserialize_CAddress(d):
-	return d['ip']+":"+str(d['port'])+" (lastseen: %s)"%(time.ctime(d['nTime']),)
+	return d['ip']+":"+str(d['port'])#+" (lastseen: %s)"%(time.ctime(d['nTime']),)
 
 def parse_setting(setting, vds):
 	if setting[0] == "f":	# flag (boolean) settings
@@ -450,7 +461,7 @@ def parse_wallet(db, item_callback):
 		try:
 			if type == "tx":
 				d["tx_id"] = kds.read_bytes(32)
-				d.update(parse_WalletTx(vds))
+        		#d.update(parse_WalletTx(vds))
 			elif type == "name":
 				d['hash'] = kds.read_string()
 				d['name'] = vds.read_string()
@@ -628,6 +639,10 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
 		elif type == "acentry":
 			json_db['acentry'] = (d['account'], d['nCreditDebit'], d['otherAccount'], time.ctime(d['nTime']), d['n'], d['comment'])
+
+		else:
+			json_db[type] = 'unsupported'
+
 
 	parse_wallet(db, item_callback)
 
