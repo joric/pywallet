@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# pywallet.py 1.0
+# pywallet.py 1.1
 #
 # based on http://github.com/gavinandresen/bitcointools
 #
@@ -27,10 +27,9 @@ import exceptions
 import hashlib
 from ctypes import *
 
-TESTNET = 0
-
 json_db = {}
 private_keys = []
+addrtype = 0
 
 def determine_db_dir():
 	import os
@@ -256,12 +255,7 @@ def public_key_to_bc_address(public_key):
 	return hash_160_to_bc_address(h160)
 
 def hash_160_to_bc_address(h160):
-
-	if TESTNET:
-		vh160 = "\x6f" + h160	# \x6f is testnet
-	else:
-		vh160 = "\x00" + h160	# \x00 is version 0
-
+	vh160 = chr(addrtype) + h160
 	h3 = Hash(vh160)
 	addr = vh160 + h3[0:4]
 	return b58encode(addr)
@@ -287,20 +281,16 @@ def create_env(db_dir=None):
 	return db_env
 
 def parse_CAddress(vds):
-
-	d = {}
-
-	d['nVersion'] = vds.read_int32()
-	if d['nVersion'] > 32400:
-		d['ip'] = '0.0.0.0'
-		d['port'] = 0
-		return d		
-
-	d['nTime'] = vds.read_uint32()
-	d['nServices'] = vds.read_uint64()
-	d['pchReserved'] = vds.read_bytes(12)
-	d['ip'] = socket.inet_ntoa(vds.read_bytes(4))
-	d['port'] = vds.read_uint16()
+	d = {'ip':'0.0.0.0','port':0,'ntime': 0}
+	try:
+		d['nVersion'] = vds.read_int32()
+		d['nTime'] = vds.read_uint32()
+		d['nServices'] = vds.read_uint64()
+		d['pchReserved'] = vds.read_bytes(12)
+		d['ip'] = socket.inet_ntoa(vds.read_bytes(4))
+		d['port'] = vds.read_uint16()
+	except:
+		pass
 	return d
 
 def deserialize_CAddress(d):
