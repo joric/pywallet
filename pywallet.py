@@ -201,10 +201,10 @@ class Private_key( object ):
 
 	def der( self ):
 		hex_der_key = '06052b8104000a30740201010420' + \
-									'%064x' % self.secret_multiplier + \
-									'a00706052b8104000aa14403420004' + \
-									'%064x' % self.public_key.point.x() + \
-									'%064x' % self.public_key.point.y()
+			'%064x' % self.secret_multiplier + \
+			'a00706052b8104000aa14403420004' + \
+			'%064x' % self.public_key.point.x() + \
+			'%064x' % self.public_key.point.y()
 
 	def sign( self, hash, random_k ):
 		G = self.public_key.generator
@@ -218,36 +218,34 @@ class Private_key( object ):
 		if s == 0: raise RuntimeError, "amazingly unlucky random number s"
 		return Signature( r, s )
 
-curve_256 = CurveFp( _p, _a, _b )
-generator_256 = Point( curve_256, _Gx, _Gy, _r )
-g = generator_256
-
 class EC_KEY(object):
 	def __init__( self, secret ):
-		self.pubkey = Public_key( g, g * secret )
+		curve = CurveFp( _p, _a, _b )
+		generator = Point( curve, _Gx, _Gy, _r )
+		self.pubkey = Public_key( generator, generator * secret )
 		self.privkey = Private_key( self.pubkey, secret )
 		self.secret = secret
 
-	def i2d_ECPrivateKey( self ):
-		hex_i2d_key = '308201130201010420' + \
-			'%064x' % self.secret + \
-			'a081a53081a2020101302c06072a8648ce3d0101022100' + \
-			'%064x' % _p + \
-			'3006040100040107044104' + \
-			'%064x' % _Gx + \
-			'%064x' % _Gy + \
-			'022100' + \
-			'%064x' % _r + \
-			'020101a14403420004' + \
-			'%064x' % self.pubkey.point.x() + \
-			'%064x' % self.pubkey.point.y()
-		return hex_i2d_key.decode('hex')
+def i2d_ECPrivateKey(pkey):
+	hex_i2d_key = '308201130201010420' + \
+		'%064x' % pkey.secret + \
+		'a081a53081a2020101302c06072a8648ce3d0101022100' + \
+		'%064x' % _p + \
+		'3006040100040107044104' + \
+		'%064x' % _Gx + \
+		'%064x' % _Gy + \
+		'022100' + \
+		'%064x' % _r + \
+		'020101a14403420004' + \
+		'%064x' % pkey.pubkey.point.x() + \
+		'%064x' % pkey.pubkey.point.y()
+	return hex_i2d_key.decode('hex')
 
-	def i2o_ECPublicKey( self ):
-		hex_i2o_key = '04' + \
-			'%064x' % self.pubkey.point.x() + \
-			'%064x' % self.pubkey.point.y()
-		return hex_i2o_key.decode('hex')
+def i2o_ECPublicKey(pkey):
+	hex_i2o_key = '04' + \
+		'%064x' % pkey.pubkey.point.x() + \
+		'%064x' % pkey.pubkey.point.y()
+	return hex_i2o_key.decode('hex')
 
 # hashes
 
@@ -369,9 +367,6 @@ def SecretToASecret(secret):
 
 def ASecretToSecret(key):
 	vch = DecodeBase58Check(key)
-
-	print long_hex(vch)
-
 	if vch and vch[0] == chr(addrtype+128):
 		return vch[1:]
 	else:
@@ -385,10 +380,10 @@ def regenerate_key(sec):
 	return EC_KEY(secret)
 
 def GetPubKey(pkey):
-	return pkey.i2o_ECPublicKey()
+	return i2o_ECPublicKey(pkey)
 
 def GetPrivKey(pkey):
-	return pkey.i2d_ECPrivateKey()
+	return i2d_ECPrivateKey(pkey)
 
 def GetSecret(pkey):
 	return ('%064x' % pkey.secret).decode('hex')
@@ -857,6 +852,6 @@ def main():
 				print "Bad private key"
 
 			db.close()
-		
+
 if __name__ == '__main__':
 	main()
