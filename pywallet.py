@@ -1,7 +1,6 @@
 #!/usr/bin/env python
-#
-# pywallet.py 1.0
-#
+
+# pywallet.py 1.1
 # based on http://github.com/gavinandresen/bitcointools
 #
 # Usage: pywallet.py [options]
@@ -12,6 +11,7 @@
 #   --dumpwallet         dump wallet in json format
 #   --importprivkey=KEY  import private key from vanitygen
 #   --datadir=DATADIR    wallet directory (defaults to bitcoin default)
+#   --testnet            use testnet subdirectory and address type
 
 from bsddb.db import *
 import os, sys, time
@@ -25,7 +25,7 @@ import types
 import string
 import exceptions
 import hashlib
-from ctypes import *
+import random
 
 max_version = 32400
 addrtype = 0
@@ -42,155 +42,242 @@ def determine_db_dir():
 		return os.path.join(os.environ['APPDATA'], "Bitcoin")
 	return os.path.expanduser("~/.bitcoin")
 
-# Had to import i2d_ECPrivateKey/i2o_ECPublicKey from dynamic libs.
-# Looks like PyCrypto/M2Crypto/pyOpenSSL modules do not support them.
+# secp256k1
 
-dlls = list()
-if 'win' in sys.platform:
-    for d in ('libeay32.dll', 'libssl32.dll', 'ssleay32.dll'):
-        try:
-            dlls.append( cdll.LoadLibrary(d) )
-        except:
-            pass
-else:
-    dlls.append( cdll.LoadLibrary('libssl.so') )
-            
-class BIGNUM_Struct (Structure):
-    _fields_ = [("d",c_void_p),("top",c_int),("dmax",c_int),("neg",c_int),("flags",c_int)]
-                
-class BN_CTX_Struct (Structure):
-    _fields_ = [ ("_", c_byte) ]
+_p = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2FL
+_r = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141L
+_b = 0x0000000000000000000000000000000000000000000000000000000000000007L
+_a = 0x0000000000000000000000000000000000000000000000000000000000000000L
+_Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798L
+_Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8L
 
-BIGNUM = POINTER( BIGNUM_Struct )
-BN_CTX = POINTER( BN_CTX_Struct )
+class CurveFp( object ):
+	def __init__( self, p, a, b ):
+		self.__p = p
+		self.__a = a
+		self.__b = b
 
-def load_func( name, args, returns = c_int):
-    d = sys.modules[ __name__ ].__dict__
-    f = None
-    
-    for dll in dlls:
-        try:
-            f = getattr(dll, name)
-            f.argtypes = args
-            f.restype  = returns
-            d[ name ] = f
-            return
-        except:
-            pass
-    raise ImportError('Unable to load required functions from SSL dlls')
-    
-load_func( 'BN_new', [], BIGNUM )
-load_func( 'BN_CTX_new', [], BN_CTX )
-load_func( 'BN_CTX_free', [BN_CTX], None   )
-load_func( 'BN_num_bits', [BIGNUM], c_int )
-load_func( 'BN_bn2bin',  [BIGNUM, c_char_p] )
-load_func( 'BN_bin2bn',  [c_char_p, c_int, BIGNUM], BIGNUM )
-load_func( 'EC_KEY_new_by_curve_name', [c_int], c_void_p )
-load_func( 'EC_KEY_get0_group', [c_void_p], c_void_p)
-load_func( 'EC_KEY_get0_private_key', [c_void_p], BIGNUM)
-load_func( 'EC_POINT_new', [c_void_p], c_void_p)
-load_func( 'EC_POINT_free', [c_void_p])
-load_func( 'EC_POINT_mul', [c_void_p, c_void_p, BIGNUM, c_void_p, BIGNUM, BN_CTX], c_int)
-load_func( 'EC_KEY_set_private_key', [c_void_p, BIGNUM], c_void_p)
-load_func( 'EC_KEY_set_public_key', [c_void_p, c_void_p], c_void_p)
-load_func( 'i2d_ECPrivateKey', [ c_void_p, POINTER(POINTER(c_char))], c_int )
-load_func( 'i2o_ECPublicKey', [ c_void_p, POINTER(POINTER(c_char))], c_int )
+	def p( self ):
+		return self.__p
 
-def BN_num_bytes(a):
-    return ((BN_num_bits(a)+7)/8)
+	def a( self ):
+		return self.__a
 
-NID_secp256k1 = 714
+	def b( self ):
+		return self.__b
 
-pkey = 0
+	def contains_point( self, x, y ):
+		return ( y * y - ( x * x * x + self.__a * x + self.__b ) ) % self.__p == 0
 
-def EC_KEY_regenerate_key(eckey, priv_key):
-	group = EC_KEY_get0_group(eckey)
-	ctx = BN_CTX_new()
-	pub_key = EC_POINT_new(group)
-	EC_POINT_mul(group, pub_key, priv_key, None, None, ctx)
-	EC_KEY_set_private_key(eckey, priv_key)
-	EC_KEY_set_public_key(eckey, pub_key)
-	EC_POINT_free(pub_key)
-	BN_CTX_free(ctx)
+class Point( object ):
+	def __init__( self, curve, x, y, order = None ):
+		self.__curve = curve
+		self.__x = x
+		self.__y = y
+		self.__order = order
+		if self.__curve: assert self.__curve.contains_point( x, y )
+		if order: assert self * order == INFINITY
+ 
+	def __add__( self, other ):
+		if other == INFINITY: return self
+		if self == INFINITY: return other
+		assert self.__curve == other.__curve
+		if self.__x == other.__x:
+			if ( self.__y + other.__y ) % self.__curve.p() == 0:
+				return INFINITY
+			else:
+				return self.double()
 
-def GetSecret(pkey):
-	bn = EC_KEY_get0_private_key(pkey)
-	nSize = BN_num_bytes(bn)
-	b = create_string_buffer(nSize)
-	BN_bn2bin(bn, b)
-	return b.raw
+		p = self.__curve.p()
+		l = ( ( other.__y - self.__y ) * \
+					inverse_mod( other.__x - self.__x, p ) ) % p
+		x3 = ( l * l - self.__x - other.__x ) % p
+		y3 = ( l * ( self.__x - x3 ) - self.__y ) % p
+		return Point( self.__curve, x3, y3 )
+
+	def __mul__( self, other ):
+		def leftmost_bit( x ):
+			assert x > 0
+			result = 1L
+			while result <= x: result = 2 * result
+			return result / 2
+
+		e = other
+		if self.__order: e = e % self.__order
+		if e == 0: return INFINITY
+		if self == INFINITY: return INFINITY
+		assert e > 0
+		e3 = 3 * e
+		negative_self = Point( self.__curve, self.__x, -self.__y, self.__order )
+		i = leftmost_bit( e3 ) / 2
+		result = self
+		while i > 1:
+			result = result.double()
+			if ( e3 & i ) != 0 and ( e & i ) == 0: result = result + self
+			if ( e3 & i ) == 0 and ( e & i ) != 0: result = result + negative_self
+			i = i / 2
+		return result
+
+	def __rmul__( self, other ):
+		return self * other
+
+	def __str__( self ):
+		if self == INFINITY: return "infinity"
+		return "(%d,%d)" % ( self.__x, self.__y )
+
+	def double( self ):
+		if self == INFINITY:
+			return INFINITY
+
+		p = self.__curve.p()
+		a = self.__curve.a()
+		l = ( ( 3 * self.__x * self.__x + a ) * \
+					inverse_mod( 2 * self.__y, p ) ) % p
+		x3 = ( l * l - 2 * self.__x ) % p
+		y3 = ( l * ( self.__x - x3 ) - self.__y ) % p
+		return Point( self.__curve, x3, y3 )
+
+	def x( self ):
+		return self.__x
+
+	def y( self ):
+		return self.__y
+
+	def curve( self ):
+		return self.__curve
 	
-def GetPrivKey(pkey):
-	nSize = i2d_ECPrivateKey(pkey, None)
-	p = create_string_buffer(nSize)
- 	i2d_ECPrivateKey(pkey, byref(cast(p, POINTER(c_char))))
-	return p.raw
+	def order( self ):
+		return self.__order
+		
+INFINITY = Point( None, None, None )
 
-def GetPubKey(pkey):
-	nSize = i2o_ECPublicKey(pkey, None)
-	p = create_string_buffer(nSize)
-	i2o_ECPublicKey(pkey, byref(cast(p, POINTER(c_char))))
-	return p.raw
+def inverse_mod( a, m ):
+	if a < 0 or m <= a: a = a % m
+	c, d = a, m
+	uc, vc, ud, vd = 1, 0, 0, 1
+	while c != 0:
+		q, c, d = divmod( d, c ) + ( c, )
+		uc, vc, ud, vd = ud - q*uc, vd - q*vc, uc, vc
+	assert d == 1
+	if ud > 0: return ud
+	else: return ud + m
 
-def Hash(data):
-	s1 = hashlib.sha256()
-	s1.update(data)
-	h1 = s1.digest()
-	s2 = hashlib.sha256()
-	s2.update(h1)
-	h2 = s2.digest()
-	return h2
+class Signature( object ):
+	def __init__( self, r, s ):
+		self.r = r
+		self.s = s
+		
+class Public_key( object ):
+	def __init__( self, generator, point ):
+		self.curve = generator.curve()
+		self.generator = generator
+		self.point = point
+		n = generator.order()
+		if not n:
+			raise RuntimeError, "Generator point must have order."
+		if not n * point == INFINITY:
+			raise RuntimeError, "Generator point order is bad."
+		if point.x() < 0 or n <= point.x() or point.y() < 0 or n <= point.y():
+			raise RuntimeError, "Generator point has x or y out of range."
 
-def EncodeBase58Check(vchIn):
-	hash = Hash(vchIn)
-	return b58encode(vchIn + hash[0:4])
+	def verifies( self, hash, signature ):
+		G = self.generator
+		n = G.order()
+		r = signature.r
+		s = signature.s
+		if r < 1 or r > n-1: return False
+		if s < 1 or s > n-1: return False
+		c = inverse_mod( s, n )
+		u1 = ( hash * c ) % n
+		u2 = ( r * c ) % n
+		xy = u1 * G + u2 * self.point
+		v = xy.x() % n
+		return v == r
 
-def DecodeBase58Check(psz):
-	vchRet = b58decode(psz, None)
-	key = vchRet[0:-4]
-	csum = vchRet[-4:]
-	hash = Hash(key)
-	cs32 = hash[0:4]
-	if cs32 != csum:
-		return None
-	else:
-		return key
+class Private_key( object ):
+	def __init__( self, public_key, secret_multiplier ):
+		self.public_key = public_key
+		self.secret_multiplier = secret_multiplier
 
-def SecretToASecret(privkey):
-	vchSecret = privkey[9:9+32]
-	# add 1-byte version number
-	vchIn = chr(addrtype+128) + vchSecret
-	return EncodeBase58Check(vchIn)
+	def der( self ):
+		hex_der_key = '06052b8104000a30740201010420' + \
+									'%064x' % self.secret_multiplier + \
+									'a00706052b8104000aa14403420004' + \
+									'%064x' % self.public_key.point.x() + \
+									'%064x' % self.public_key.point.y()
 
-def ASecretToSecret(key):
-	vch = DecodeBase58Check(key)
-	if vch and vch[0] == chr(addrtype + 128):
-		return vch[1:]
-	else:
-		return False
+	def sign( self, hash, random_k ):
+		G = self.public_key.generator
+		n = G.order()
+		k = random_k % n
+		p1 = k * G
+		r = p1.x()
+		if r == 0: raise RuntimeError, "amazingly unlucky random number r"
+		s = ( inverse_mod( k, n ) * \
+					( hash + ( self.secret_multiplier * r ) % n ) ) % n
+		if s == 0: raise RuntimeError, "amazingly unlucky random number s"
+		return Signature( r, s )
 
-def importprivkey(db, key):
-	vchSecret = ASecretToSecret(key)
+curve_256 = CurveFp( _p, _a, _b )
+generator_256 = Point( curve_256, _Gx, _Gy, _r )
+g = generator_256
 
-	if not vchSecret:
-		return False
+class EC_KEY(object):
+	def __init__( self, secret ):
+		self.pubkey = Public_key( g, g * secret )
+		self.privkey = Private_key( self.pubkey, secret )
+		self.secret = secret
 
-	pkey = EC_KEY_new_by_curve_name(NID_secp256k1)
-	bn = BN_bin2bn(vchSecret, 32, BN_new())
-	EC_KEY_regenerate_key(pkey, bn)
+	def i2d_ECPrivateKey( self ):
+		hex_i2d_key = '308201130201010420' + \
+			'%064x' % self.secret + \
+			'a081a53081a2020101302c06072a8648ce3d0101022100' + \
+			'%064x' % _p + \
+			'3006040100040107044104' + \
+			'%064x' % _Gx + \
+			'%064x' % _Gy + \
+			'022100' + \
+			'%064x' % _r + \
+			'020101a14403420004' + \
+			'%064x' % self.pubkey.point.x() + \
+			'%064x' % self.pubkey.point.y()
+		return hex_i2d_key.decode('hex')
 
-	secret = GetSecret(pkey)
-	private_key = GetPrivKey(pkey)
-	public_key = GetPubKey(pkey)
-	addr = public_key_to_bc_address(public_key)
+	def i2o_ECPublicKey( self ):
+		hex_i2o_key = '04' + \
+			'%064x' % self.pubkey.point.x() + \
+			'%064x' % self.pubkey.point.y()
+		return hex_i2o_key.decode('hex')
 
-	print "Address: %s" % addr
-	print "Privkey: %s" % SecretToASecret(private_key)
+# hashes
 
-	update_wallet(db, 'key', { 'public_key' : public_key, 'private_key' : private_key })
-	update_wallet(db, 'name', { 'hash' : addr, 'name' : '' })
+def hash_160(public_key):
+ 	md = hashlib.new('ripemd160')
+	md.update(hashlib.sha256(public_key).digest())
+	return md.digest()
 
-	return True
+def public_key_to_bc_address(public_key):
+	h160 = hash_160(public_key)
+	return hash_160_to_bc_address(h160)
+
+def hash_160_to_bc_address(h160):
+	vh160 = chr(addrtype) + h160
+	h = Hash(vh160)
+	addr = vh160 + h[0:4]
+	return b58encode(addr)
+
+def bc_address_to_hash_160(addr):
+	bytes = b58decode(addr, 25)
+	return bytes[1:21]
+
+def long_hex(bytes):
+	return bytes.encode('hex_codec')
+
+def short_hex(bytes):
+	t = bytes.encode('hex_codec')
+	if len(t) < 32:
+		return t
+	return t[0:32]+"..."+t[-32:]
 
 __b58chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 __b58base = len(__b58chars)
@@ -244,37 +331,69 @@ def b58decode(v, length):
 
 	return result
 
-def hash_160(public_key):
-	s1 = hashlib.sha256()
-	s1.update(public_key)
-	h1 = s1.digest()
-	s2 = hashlib.new('ripemd160')
-	s2.update(h1)
-	h2 = s2.digest()
-	return h2
-
-def public_key_to_bc_address(public_key):
-	h160 = hash_160(public_key)
-	return hash_160_to_bc_address(h160)
-
-def hash_160_to_bc_address(h160):
-	vh160 = chr(addrtype) + h160
-	h3 = Hash(vh160)
-	addr = vh160 + h3[0:4]
-	return b58encode(addr)
-
-def bc_address_to_hash_160(addr):
-	bytes = b58decode(addr, 25)
-	return bytes[1:21]
-
 def long_hex(bytes):
 	return bytes.encode('hex_codec')
 
-def short_hex(bytes):
-	t = bytes.encode('hex_codec')
-	if len(t) < 32:
-		return t
-	return t[0:32]+"..."+t[-32:]
+def Hash(data):
+	return hashlib.sha256(hashlib.sha256(data).digest()).digest()
+
+def EncodeBase58Check(vchIn):
+	hash = Hash(vchIn)
+	return b58encode(vchIn + hash[0:4])
+
+def DecodeBase58Check(psz):
+	vchRet = b58decode(psz, None)
+	key = vchRet[0:-4]
+	csum = vchRet[-4:]
+	hash = Hash(key)
+	cs32 = hash[0:4]
+	if cs32 != csum:
+		return None
+	else:
+		return key
+
+def str_to_long(b):
+	res = 0
+	pos = 1
+	for a in reversed(b):
+		res += ord(a) * pos
+		pos *= 256
+	return res
+
+def PrivKeyToSecret(privkey):
+	return privkey[9:9+32]
+
+def SecretToASecret(secret):
+	vchIn = chr(addrtype+128) + secret
+	return EncodeBase58Check(vchIn)
+
+def ASecretToSecret(key):
+	vch = DecodeBase58Check(key)
+
+	print long_hex(vch)
+
+	if vch and vch[0] == chr(addrtype+128):
+		return vch[1:]
+	else:
+		return False
+
+def regenerate_key(sec):
+	b = ASecretToSecret(sec)
+	if not b:
+		return False
+	secret = str_to_long(b)	
+	return EC_KEY(secret)
+
+def GetPubKey(pkey):
+	return pkey.i2o_ECPublicKey()
+
+def GetPrivKey(pkey):
+	return pkey.i2d_ECPrivateKey()
+
+def GetSecret(pkey):
+	return ('%064x' % pkey.secret).decode('hex')
+
+# parser
 
 def create_env(db_dir):
 	db_env = DBEnv(0)
@@ -625,7 +744,7 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
 		elif type == "key":
 			addr = public_key_to_bc_address(d['public_key'])
-			sec = SecretToASecret(d['private_key'])
+			sec = SecretToASecret(PrivKeyToSecret(d['private_key']))
 			private_keys.append(sec)
 			json_db['keys'].append({'addr' : addr, 'sec' : sec})
 
@@ -664,13 +783,31 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 	del(json_db['pool'])
 	del(json_db['names'])
 
+def importprivkey(db, sec):
+	pkey = regenerate_key(sec)
+	if not pkey:
+		return False
+
+	secret = GetSecret(pkey)
+	private_key = GetPrivKey(pkey)
+	public_key = GetPubKey(pkey)
+	addr = public_key_to_bc_address(public_key)
+
+	print "Address: %s" % addr
+	print "Privkey: %s" % SecretToASecret(secret)
+
+	update_wallet(db, 'key', { 'public_key' : public_key, 'private_key' : private_key })
+	update_wallet(db, 'name', { 'hash' : addr, 'name' : '' })
+
+	return True
+
 from optparse import OptionParser
 
 def main():
 
 	global max_version, addrtype
 
-	parser = OptionParser(usage="%prog [options]", version="%prog 1.0")
+	parser = OptionParser(usage="%prog [options]", version="%prog 1.1")
 
 	parser.add_option("--dumpwallet", dest="dump", action="store_true",
 		help="dump wallet in json format")
@@ -720,6 +857,6 @@ def main():
 				print "Bad private key"
 
 			db.close()
-
+		
 if __name__ == '__main__':
 	main()
