@@ -205,6 +205,7 @@ class Private_key( object ):
 			'a00706052b8104000aa14403420004' + \
 			'%064x' % self.public_key.point.x() + \
 			'%064x' % self.public_key.point.y()
+		return hex_der_key.decode('hex')
 
 	def sign( self, hash, random_k ):
 		G = self.public_key.generator
@@ -227,6 +228,11 @@ class EC_KEY(object):
 		self.secret = secret
 
 def i2d_ECPrivateKey(pkey):
+	# private keys are 279 bytes long (see crypto/ec/cec_asn1.c)
+	# ASN1_SIMPLE(EC_PRIVATEKEY, version, LONG),
+	# ASN1_SIMPLE(EC_PRIVATEKEY, privateKey, ASN1_OCTET_STRING),
+	# ASN1_EXP_OPT(EC_PRIVATEKEY, parameters, ECPKPARAMETERS, 0),
+	# ASN1_EXP_OPT(EC_PRIVATEKEY, publicKey, ASN1_BIT_STRING, 1)
 	hex_i2d_key = '308201130201010420' + \
 		'%064x' % pkey.secret + \
 		'a081a53081a2020101302c06072a8648ce3d0101022100' + \
@@ -242,6 +248,8 @@ def i2d_ECPrivateKey(pkey):
 	return hex_i2d_key.decode('hex')
 
 def i2o_ECPublicKey(pkey):
+	# public keys are 65 bytes long (520 bits)
+	# 0x04 + 32-byte X-coordinate + 32-byte Y-coordinate
 	hex_i2o_key = '04' + \
 		'%064x' % pkey.pubkey.point.x() + \
 		'%064x' % pkey.pubkey.point.y()
@@ -267,15 +275,6 @@ def hash_160_to_bc_address(h160):
 def bc_address_to_hash_160(addr):
 	bytes = b58decode(addr, 25)
 	return bytes[1:21]
-
-def long_hex(bytes):
-	return bytes.encode('hex_codec')
-
-def short_hex(bytes):
-	t = bytes.encode('hex_codec')
-	if len(t) < 32:
-		return t
-	return t[0:32]+"..."+t[-32:]
 
 __b58chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 __b58base = len(__b58chars)
@@ -683,6 +682,11 @@ def update_wallet(db, type, data):
 			vds.write_int64(d['nTime'])
 			vds.write_string(d['otherAccount'])
 			vds.write_string(d['comment'])
+		elif type == "bestblock":
+			vds.write_int32(d['nVersion'])
+			vds.write_compact_size(len(d['hashes']))
+			for h in d['hashes']:
+				vds.write(h)
 		else:
 			print "Unknown key type: "+type
 
