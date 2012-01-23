@@ -12,4 +12,4 @@ Options:
 Dependencies:
     python: http://www.python.org/ftp/python/2.7.2/python-2.7.2.msi
     bsddb module: http://pybsddb-win.googlecode.com/files/bsddb3-5.1.2.win32-py2.7.exe
-    cryptography: libssl or libeay32.dll or http://code.google.com/p/slowaes
+    cryptography: pycrypto or libssl or libeay32.dll or http://code.google.com/p/slowaes

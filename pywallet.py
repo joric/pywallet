@@ -36,7 +36,34 @@ def determine_db_dir():
 
 crypter = None
 
-# Uses either libssl or libeay32.dll or aes.py from http://code.google.com/p/slowaes
+# Use pycrypto or libssl or libeay32.dll or aes.py from http://code.google.com/p/slowaes
+
+try:
+    from Crypto.Cipher import AES
+    crypter = 'pycrypto'
+except:
+    pass
+
+class Crypter_pycrypto( object ):
+    def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
+        data = vKeyData + vSalt
+        for i in range(nDerivIterations):
+            data = hashlib.sha512(data).digest()
+        self.SetKey(data[0:32])
+        self.SetIV(data[32:32+16])
+        return len(data)
+
+    def SetKey(self, key):
+        self.chKey = key
+
+    def SetIV(self, iv):
+        self.chIV = iv[0:16]
+
+    def Encrypt(self, data):
+        return AES.new(self.chKey,AES.MODE_CBC,self.chIV).encrypt(data)[0:32]
+ 
+    def Decrypt(self, data):
+        return AES.new(self.chKey,AES.MODE_CBC,self.chIV).decrypt(data)[0:32]
 
 try:
     import ctypes
@@ -90,8 +117,8 @@ class Crypter_ssl( object ):
         return output
 
 try:
-    from aes import *
     if not crypter:
+        from aes import *
         crypter = 'pure'
 except:
     pass
@@ -862,12 +889,14 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
             if password:
                 global crypter
-                if crypter == 'ssl':
+                if crypter == 'pycrypto':
+                    crypter = Crypter_pycrypto()
+                elif crypter == 'ssl':
                     crypter = Crypter_ssl()
                 elif crypter == 'pure':
                     crypter = Crypter_pure()
                 else:
-                    logging.error("Need either libssl or libeay32.dll or http://code.google.com/p/slowaes")
+                    logging.error("Need pycrypto or libssl or libeay32.dll or http://code.google.com/p/slowaes")
                     sys.exit(1)
 
                 crypter.SetKeyFromPassphrase(password, d['salt'], d['nDeriveIterations'], d['nDerivationMethod'])
