@@ -7,13 +7,9 @@ Options:
   --importprivkey=KEY  import private key from vanitygen
   --datadir=DATADIR    wallet directory (defaults to bitcoin default)
   --testnet            use testnet subdirectory and address type
+  --password=PASSWORD  password for the encrypted wallet
 
-For Win32 users:
-
-Installing it is super-easy, a way easier than building the entire client with a showwallet patch.
-Both python and bsddb module are available as binary distributions.
-python: http://www.python.org/ftp/python/2.7.2/python-2.7.2.msi
-bsddb: http://pybsddb-win.googlecode.com/files/bsddb3-5.1.2.win32-py2.7.exe (run as administrator)
-It works directly with the database, so you have to shut down the bitcoin client to import a key.
-Run the script as "python.exe pywallet.py --importprivkey=<your_private_key>".
-Use "bitcoin -rescan" to rescan all transactions for the new key.
+Dependencies:
+    python: http://www.python.org/ftp/python/2.7.2/python-2.7.2.msi
+    bsddb module: http://pybsddb-win.googlecode.com/files/bsddb3-5.1.2.win32-py2.7.exe
+    cryptography: libssl or libeay32.dll or http://code.google.com/p/slowaes
