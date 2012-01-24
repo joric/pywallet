@@ -10,6 +10,11 @@ Options:
   --password=PASSWORD  password for the encrypted wallet
 
 Dependencies:
-    python: http://www.python.org/ftp/python/2.7.2/python-2.7.2.msi
-    bsddb module: http://pybsddb-win.googlecode.com/files/bsddb3-5.1.2.win32-py2.7.exe
-    cryptography: pycrypto or libssl or libeay32.dll or http://code.google.com/p/slowaes
+  Database management: pybsddb
+  AES encryption: pycrypto or libssl or libeay32.dll or slowaes
+
+Links:
+  http://www.python.org/ftp/python/2.7.2/python-2.7.2.msi
+  http://pybsddb-win.googlecode.com/files/bsddb3-5.1.2.win32-py2.7.exe
+  http://www.voidspace.org.uk/downloads/pycrypto-2.3.win32-py2.7.zip
+  http://code.google.com/p/slowaes
