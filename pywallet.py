@@ -1485,7 +1485,7 @@ def main():
     parser.add_option("--dumpwallet", dest="dump", action="store_true",
         help="dump wallet in json format")
 
-    parser.add_option("--dumpprivkey", dest="key", 
+    parser.add_option("--importprivkey", dest="key",
         help="import private key from vanitygen")
 
     parser.add_option("--datadir", dest="datadir", 
