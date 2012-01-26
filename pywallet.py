@@ -1019,12 +1019,13 @@ def PrivKeyToSecret(privkey):
     return privkey[9:9+32]
 
 def SecretToASecret(secret):
-    vchIn = chr(addrtype+128) + secret
+    vchIn = chr((addrtype+128)&255) + secret
     return EncodeBase58Check(vchIn)
 
 def ASecretToSecret(sec):
     vch = DecodeBase58Check(sec)
-    if vch and vch[0] == chr(addrtype+128):
+    print vch[0].encode('hex')
+    if vch and vch[0] == chr((addrtype+128)&255):
         return vch[1:]
     else:
         return False
