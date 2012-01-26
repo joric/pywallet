@@ -17,6 +17,7 @@ import string
 import exceptions
 import hashlib
 import random
+import math
 
 max_version = 50990
 addrtype = 0
@@ -35,10 +36,6 @@ def determine_db_dir():
     return os.path.expanduser("~/.bitcoin")
 
 # from the SlowAES project, http://code.google.com/p/slowaes
-
-import os
-import sys
-import math
 
 def append_PKCS7_padding(s):
     """return s padded to a multiple of 16-bytes by PKCS7 padding"""
@@ -611,6 +608,8 @@ class AESModeOfOperation(object):
                     iput = ciphertext
         return stringOut
 
+# crypter implementation
+
 class Crypter(object):
     def __init__(self):
         self.m = AESModeOfOperation()
@@ -618,12 +617,14 @@ class Crypter(object):
         self.sz = self.m.aes.keySize["SIZE_256"]
 
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
-        data = vKeyData + vSalt
-        for i in range(nDerivIterations):
-            data = hashlib.sha512(data).digest()
-        self.SetKey(data[0:32])
-        self.SetIV(data[32:32+16])
-        return len(data)
+        if nDerivationMethod == 0:
+            data = vKeyData + vSalt
+            for i in xrange(nDerivIterations):
+                data = hashlib.sha512(data).digest()
+            self.SetKey(data[0:32])
+            self.SetIV(data[32:32+16])
+            return len(data)
+        return 0
 
     def SetKey(self, key):
         self.chKey = [ord(i) for i in key]
@@ -942,14 +943,6 @@ def DecodeBase58Check(sec):
     else:
         return secret
 
-def str_to_long(b):
-    res = 0
-    pos = 1
-    for a in reversed(b):
-        res += ord(a) * pos
-        pos *= 256
-    return res
-
 def PrivKeyToSecret(privkey):
     return privkey[9:9+32]
 
@@ -968,7 +961,7 @@ def regenerate_key(sec):
     b = ASecretToSecret(sec)
     if not b:
         return False
-    secret = str_to_long(b)
+    secret = int('0x' + b.encode('hex'), 16)
     return EC_KEY(secret)
 
 def GetPubKey(pkey):
@@ -1378,7 +1371,10 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
             if password:
                 global crypter
                 crypter = Crypter()
-                crypter.SetKeyFromPassphrase(password, d['salt'], d['nDeriveIterations'], d['nDerivationMethod'])
+                res = crypter.SetKeyFromPassphrase(password, d['salt'], d['nDeriveIterations'], d['nDerivationMethod'])
+                if res == 0:
+                    logging.error("Unsupported derivation method")
+                    sys.exit(1)
                 masterkey = crypter.Decrypt(d['crypted_key'])
                 crypter.SetKey(masterkey)
 
