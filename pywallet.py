@@ -1024,7 +1024,6 @@ def SecretToASecret(secret):
 
 def ASecretToSecret(sec):
     vch = DecodeBase58Check(sec)
-    print vch[0].encode('hex')
     if vch and vch[0] == chr((addrtype+128)&255):
         return vch[1:]
     else:
