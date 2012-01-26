@@ -610,21 +610,93 @@ class AESModeOfOperation(object):
 
 # crypter implementation
 
-class Crypter(object):
+crypter = None
+
+try:
+    from Crypto.Cipher import AES
+    crypter = 'pycrypto'
+except:
+    pass
+
+class Crypter_pycrypto( object ):
+    def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
+        if nDerivationMethod != 0:
+            return 0
+        data = vKeyData + vSalt
+        for i in xrange(nDerivIterations):
+            data = hashlib.sha512(data).digest()
+        self.SetKey(data[0:32])
+        self.SetIV(data[32:32+16])
+        return len(data)
+
+    def SetKey(self, key):
+        self.chKey = key
+
+    def SetIV(self, iv):
+        self.chIV = iv[0:16]
+
+    def Encrypt(self, data):
+        return AES.new(self.chKey,AES.MODE_CBC,self.chIV).encrypt(data)[0:32]
+ 
+    def Decrypt(self, data):
+        return AES.new(self.chKey,AES.MODE_CBC,self.chIV).decrypt(data)[0:32]
+
+try:
+    if not crypter:
+        import ctypes
+        import ctypes.util
+        ssl = ctypes.cdll.LoadLibrary (ctypes.util.find_library ('ssl') or 'libeay32')
+        crypter = 'ssl'
+except:
+    pass
+
+class Crypter_ssl(object):
+    def __init__(self):
+        self.chKey = ctypes.create_string_buffer (32)
+        self.chIV = ctypes.create_string_buffer (16)
+
+    def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
+        if nDerivationMethod != 0:
+            return 0
+        strKeyData = ctypes.create_string_buffer (vKeyData)
+        chSalt = ctypes.create_string_buffer (vSalt)
+        return ssl.EVP_BytesToKey(ssl.EVP_aes_256_cbc(), ssl.EVP_sha512(), chSalt, strKeyData,
+            len(vKeyData), nDerivIterations, ctypes.byref(self.chKey), ctypes.byref(self.chIV))
+
+    def SetKey(self, key):
+        self.chKey = ctypes.create_string_buffer(key)
+
+    def SetIV(self, iv):
+        self.chIV = ctypes.create_string_buffer(iv)
+
+    def Encrypt(self, data):
+        buf = ctypes.create_string_buffer(len(data) + 16)
+        written = ctypes.c_int(0)
+        final = ctypes.c_int(0)
+        ctx = ssl.EVP_CIPHER_CTX_new()
+        ssl.EVP_CIPHER_CTX_init(ctx)
+        ssl.EVP_EncryptInit_ex(ctx, ssl.EVP_aes_256_cbc(), None, self.chKey, self.chIV)
+        ssl.EVP_EncryptUpdate(ctx, buf, ctypes.byref(written), data, len(data))
+        output = buf.raw[:written.value]
+        ssl.EVP_EncryptFinal_ex(ctx, buf, ctypes.byref(final))
+        output += buf.raw[:final.value]
+        return output
+
+class Crypter_pure(object):
     def __init__(self):
         self.m = AESModeOfOperation()
         self.cbc = self.m.modeOfOperation["CBC"]
         self.sz = self.m.aes.keySize["SIZE_256"]
 
     def SetKeyFromPassphrase(self, vKeyData, vSalt, nDerivIterations, nDerivationMethod):
-        if nDerivationMethod == 0:
-            data = vKeyData + vSalt
-            for i in xrange(nDerivIterations):
-                data = hashlib.sha512(data).digest()
-            self.SetKey(data[0:32])
-            self.SetIV(data[32:32+16])
-            return len(data)
-        return 0
+        if nDerivationMethod != 0:
+            return 0
+        data = vKeyData + vSalt
+        for i in xrange(nDerivIterations):
+            data = hashlib.sha512(data).digest()
+        self.SetKey(data[0:32])
+        self.SetIV(data[32:32+16])
+        return len(data)
 
     def SetKey(self, key):
         self.chKey = [ord(i) for i in key]
@@ -1370,7 +1442,13 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
             if password:
                 global crypter
-                crypter = Crypter()
+                if crypter == 'pycrypto':
+                    crypter = Crypter_pycrypto()
+                elif crypter == 'ssl':
+                    crypter = Crypter_ssl()
+                else:
+                    crypter = Crypter_pure()
+                    logging.warning("pycrypto or libssl not found, decryption may be slow")
                 res = crypter.SetKeyFromPassphrase(password, d['salt'], d['nDeriveIterations'], d['nDerivationMethod'])
                 if res == 0:
                     logging.error("Unsupported derivation method")
