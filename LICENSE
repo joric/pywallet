@@ -1,0 +1,20 @@
+PyWallet
+http://github.com/joric/pywallet
+Crypter loader and most of the actual code placed in the public domain.
+PyWallet includes modified poritions of free software, listed below.
+
+Python-ECDSA (EC_KEY implementation - MIT license)
+http://github.com/warner/python-ecdsa
+Copyright (c) 2010 Brian Warner 
+Portions written in 2005 by Peter Pearson and placed in the public domain.
+
+SlowAES (AES and AESModeOfOperation code - Apache 2 license)
+http://code.google.com/p/slowaes/
+Copyright (c) 2008, Josh Davis ( http://www.josh-davis.org ), 
+Alex Martelli ( http://www.aleax.it )
+Ported from C code written by Laurent Haan ( http://www.progressive-coding.com )
+Licensed under the Apache License, Version 2.0 http://www.apache.org/licenses/
+
+BitcoinTools (BCDataStream and base58 code - MIT license)
+https://github.com/gavinandresen/bitcointools
+Copyright (c) 2010 Gavin Andresen
