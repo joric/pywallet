@@ -3,23 +3,23 @@
 # PyWallet 1.2 (Public Domain)
 # http://github.com/joric/pywallet
 # Most of the actual PyWallet code placed in the public domain.
-# PyWallet includes modified poritions of free software, listed below.
+# PyWallet includes poritions of free software, listed below.
 
-# Python-ECDSA (EC_KEY implementation, MIT License)
+# BitcoinTools (wallet.dat handling code, MIT License)
+# https://github.com/gavinandresen/bitcointools
+# Copyright (c) 2010 Gavin Andresen
+
+# python-ecdsa (EC_KEY implementation, MIT License)
 # http://github.com/warner/python-ecdsa
 # "python-ecdsa" Copyright (c) 2010 Brian Warner
 # Portions written in 2005 by Peter Pearson and placed in the public domain.
 
-# SlowAES (AES and AESModeOfOperation code, Apache 2 License)
+# SlowAES (aes.py code, Apache 2 License)
 # http://code.google.com/p/slowaes/
 # Copyright (c) 2008, Josh Davis (http://www.josh-davis.org), 
 # Alex Martelli (http://www.aleax.it)
-# Ported from C code written by Laurent Haan ( http://www.progressive-coding.com )
+# Ported from C code written by Laurent Haan (http://www.progressive-coding.com)
 # Licensed under the Apache License, Version 2.0 http://www.apache.org/licenses/
-
-# BitcoinTools (BCDataStream and base58 code, MIT License)
-# https://github.com/gavinandresen/bitcointools
-# Copyright (c) 2010 Gavin Andresen
 
 from bsddb.db import *
 import os, sys, time
@@ -52,7 +52,7 @@ def determine_db_dir():
         return os.path.join(os.environ['APPDATA'], "Bitcoin")
     return os.path.expanduser("~/.bitcoin")
 
-# from the SlowAES project, http://code.google.com/p/slowaes
+# from the SlowAES project, http://code.google.com/p/slowaes (aes.py)
 
 def append_PKCS7_padding(s):
     """return s padded to a multiple of 16-bytes by PKCS7 padding"""
@@ -441,7 +441,6 @@ class AES(object):
                 output[(k*4)+l] = block[(k+(l*4))]
         return output
 
-
 class AESModeOfOperation(object):
 
     aes = AES()
@@ -625,7 +624,9 @@ class AESModeOfOperation(object):
                     iput = ciphertext
         return stringOut
 
-# crypter implementation
+# end of aes.py code
+
+# pywallet crypter implementation
 
 crypter = None
 
@@ -737,6 +738,8 @@ _b = 0x0000000000000000000000000000000000000000000000000000000000000007L
 _a = 0x0000000000000000000000000000000000000000000000000000000000000000L
 _Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798L
 _Gy = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8L
+
+# python-ecdsa code (EC_KEY implementation)
 
 class CurveFp( object ):
     def __init__( self, p, a, b ):
@@ -914,6 +917,10 @@ class EC_KEY(object):
         self.privkey = Private_key( self.pubkey, secret )
         self.secret = secret
 
+# end of python-ecdsa code
+
+# pywallet openssl private key implementation
+
 def i2d_ECPrivateKey(pkey):
     # private keys are 279 bytes long (see crypto/ec/cec_asn1.c)
     hex_i2d_key = '308201130201010420' + \
@@ -938,7 +945,7 @@ def i2o_ECPublicKey(pkey):
         '%064x' % pkey.pubkey.point.y()
     return hex_i2o_key.decode('hex')
 
-# hashes
+# bitcointools hashes and base58 implementation
 
 def hash_160(public_key):
     md = hashlib.new('ripemd160')
@@ -1011,6 +1018,10 @@ def b58decode(v, length):
 
     return result
 
+# end of bitcointools base58 implementation
+
+# address handling code
+
 def long_hex(bytes):
     return bytes.encode('hex_codec')
 
@@ -1062,7 +1073,7 @@ def GetPrivKey(pkey):
 def GetSecret(pkey):
     return ('%064x' % pkey.secret).decode('hex')
 
-# parser
+# bitcointools wallet.dat handling code
 
 def create_env(db_dir):
     db_env = DBEnv(0)
@@ -1406,6 +1417,10 @@ def rewrite_wallet(db_env, destFileName, pre_put_callback=None):
     parse_wallet(db, item_callback)
     db_out.close()
     db.close()
+
+# end of bitcointools wallet.dat handling code
+
+# wallet.dat reader / writer
 
 def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transaction_filter):
     global password
