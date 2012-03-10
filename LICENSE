@@ -1,6 +1,6 @@
 PyWallet (Public Domain)
 http://github.com/joric/pywallet
-Crypter loader and most of the actual code placed in the public domain.
+Most of the actual PyWallet code placed in the public domain.
 PyWallet includes modified poritions of free software, listed below.
 
 Python-ECDSA (EC_KEY implementation, MIT License)
