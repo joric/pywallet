@@ -3,7 +3,7 @@
 # PyWallet 1.2 (Public Domain)
 # http://github.com/joric/pywallet
 # Most of the actual PyWallet code placed in the public domain.
-# PyWallet includes poritions of free software, listed below.
+# PyWallet includes portions of free software, listed below.
 
 # BitcoinTools (wallet.dat handling code, MIT License)
 # https://github.com/gavinandresen/bitcointools
@@ -19,7 +19,6 @@
 # Copyright (c) 2008, Josh Davis (http://www.josh-davis.org), 
 # Alex Martelli (http://www.aleax.it)
 # Ported from C code written by Laurent Haan (http://www.progressive-coding.com)
-# Licensed under the Apache License, Version 2.0 http://www.apache.org/licenses/
 
 from bsddb.db import *
 import os, sys, time
