@@ -35,7 +35,7 @@ import hashlib
 import random
 import math
 
-max_version = 50990
+max_version = 60000
 addrtype = 0
 json_db = {}
 private_keys = []
@@ -1020,9 +1020,6 @@ def b58decode(v, length):
 # end of bitcointools base58 implementation
 
 # address handling code
-
-def long_hex(bytes):
-    return bytes.encode('hex_codec')
 
 def Hash(data):
     return hashlib.sha256(hashlib.sha256(data).digest()).digest()
