@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# PyWallet 1.2 (Public Domain)
+# PyWallet 1.2.1 (Public Domain)
 # http://github.com/joric/pywallet
 # Most of the actual PyWallet code placed in the public domain.
 # PyWallet includes portions of free software, listed below.
@@ -35,7 +35,7 @@ import hashlib
 import random
 import math
 
-max_version = 60000
+max_version = 60004
 addrtype = 0
 json_db = {}
 private_keys = []
@@ -699,6 +699,19 @@ class Crypter_ssl(object):
         output += buf.raw[:final.value]
         return output
 
+    def Decrypt(self, data):
+        buf = ctypes.create_string_buffer(len(data) + 16)
+        written = ctypes.c_int(0)
+        final = ctypes.c_int(0)
+        ctx = ssl.EVP_CIPHER_CTX_new()
+        ssl.EVP_CIPHER_CTX_init(ctx)
+        ssl.EVP_DecryptInit_ex(ctx, ssl.EVP_aes_256_cbc(), None, self.chKey, self.chIV)
+        ssl.EVP_DecryptUpdate(ctx, buf, ctypes.byref(written), data, len(data))
+        output = buf.raw[:written.value]
+        ssl.EVP_DecryptFinal_ex(ctx, buf, ctypes.byref(final))
+        output += buf.raw[:final.value]
+        return output
+
 class Crypter_pure(object):
     def __init__(self):
         self.m = AESModeOfOperation()
@@ -920,29 +933,47 @@ class EC_KEY(object):
 
 # pywallet openssl private key implementation
 
-def i2d_ECPrivateKey(pkey):
-    # private keys are 279 bytes long (see crypto/ec/cec_asn1.c)
-    hex_i2d_key = '308201130201010420' + \
-        '%064x' % pkey.secret + \
-        'a081a53081a2020101302c06072a8648ce3d0101022100' + \
-        '%064x' % _p + \
-        '3006040100040107044104' + \
-        '%064x' % _Gx + \
-        '%064x' % _Gy + \
-        '022100' + \
-        '%064x' % _r + \
-        '020101a14403420004' + \
-        '%064x' % pkey.pubkey.point.x() + \
-        '%064x' % pkey.pubkey.point.y()
-    return hex_i2d_key.decode('hex')
+def i2d_ECPrivateKey(pkey, compressed=False):
+    if compressed:
+        key = '3081d30201010420' + \
+            '%064x' % pkey.secret + \
+            'a081a53081a2020101302c06072a8648ce3d0101022100' + \
+            '%064x' % _p + \
+            '3006040100040107042102' + \
+            '%064x' % _Gx + \
+            '022100' + \
+            '%064x' % _r + \
+            '020101a124032200'
+    else:
+        key = '308201130201010420' + \
+            '%064x' % pkey.secret + \
+            'a081a53081a2020101302c06072a8648ce3d0101022100' + \
+            '%064x' % _p + \
+            '3006040100040107044104' + \
+            '%064x' % _Gx + \
+            '%064x' % _Gy + \
+            '022100' + \
+            '%064x' % _r + \
+            '020101a144034200'
 
-def i2o_ECPublicKey(pkey):
+    return key.decode('hex') + i2o_ECPublicKey(pkey, compressed)
+
+def i2o_ECPublicKey(pkey, compressed=False):
     # public keys are 65 bytes long (520 bits)
     # 0x04 + 32-byte X-coordinate + 32-byte Y-coordinate
-    hex_i2o_key = '04' + \
-        '%064x' % pkey.pubkey.point.x() + \
-        '%064x' % pkey.pubkey.point.y()
-    return hex_i2o_key.decode('hex')
+    # 0x00 = point at infinity, 0x02 and 0x03 = compressed, 0x04 = uncompressed
+    # compressed keys: <sign> <x> where <sign> is 0x02 if y is even and 0x03 if y is odd
+    if compressed:
+        if pkey.pubkey.point.y() & 1:
+            key = '03' + '%064x' % pkey.pubkey.point.x()
+        else:
+            key = '02' + '%064x' % pkey.pubkey.point.x()
+    else:
+        key = '04' + \
+            '%064x' % pkey.pubkey.point.x() + \
+            '%064x' % pkey.pubkey.point.y()
+
+    return key.decode('hex')
 
 # bitcointools hashes and base58 implementation
 
@@ -1019,6 +1050,7 @@ def b58decode(v, length):
 
 # end of bitcointools base58 implementation
 
+
 # address handling code
 
 def Hash(data):
@@ -1040,10 +1072,14 @@ def DecodeBase58Check(sec):
         return secret
 
 def PrivKeyToSecret(privkey):
-    return privkey[9:9+32]
+    if len(privkey) == 279:
+        return privkey[9:9+32]
+    else:
+        return privkey[8:8+32]
 
-def SecretToASecret(secret):
+def SecretToASecret(secret, compressed=False):
     vchIn = chr((addrtype+128)&255) + secret
+    if compressed: vchIn += '\01'
     return EncodeBase58Check(vchIn)
 
 def ASecretToSecret(sec):
@@ -1057,17 +1093,22 @@ def regenerate_key(sec):
     b = ASecretToSecret(sec)
     if not b:
         return False
+    b = b[0:32]
     secret = int('0x' + b.encode('hex'), 16)
     return EC_KEY(secret)
 
-def GetPubKey(pkey):
-    return i2o_ECPublicKey(pkey)
+def GetPubKey(pkey, compressed=False):
+    return i2o_ECPublicKey(pkey, compressed)
 
-def GetPrivKey(pkey):
-    return i2d_ECPrivateKey(pkey)
+def GetPrivKey(pkey, compressed=False):
+    return i2d_ECPrivateKey(pkey, compressed)
 
 def GetSecret(pkey):
     return ('%064x' % pkey.secret).decode('hex')
+
+def is_compressed(sec):
+    b = ASecretToSecret(sec)
+    return len(b) == 33
 
 # bitcointools wallet.dat handling code
 
@@ -1263,6 +1304,8 @@ def parse_wallet(db, item_callback):
                 d['name'] = vds.read_string()
             elif type == "version":
                 d['version'] = vds.read_uint32()
+            elif type == "minversion":
+                d['minversion'] = vds.read_uint32()
             elif type == "setting":
                 d['setting'] = kds.read_string()
                 d['value'] = parse_setting(d['setting'], vds)
@@ -1342,6 +1385,8 @@ def update_wallet(db, type, data):
             vds.write_string(d['name'])
         elif type == "version":
             vds.write_uint32(d['version'])
+        elif type == "minversion":
+            vds.write_uint32(d['minversion'])
         elif type == "setting":
             raise NotImplementedError("Writing items of type 'setting'")
             kds.write_string(d['setting'])
@@ -1435,6 +1480,9 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
         elif type == "version":
             json_db['version'] = d['version']
 
+        elif type == "minversion":
+            json_db['minversion'] = d['minversion']
+
         elif type == "setting":
             if not json_db.has_key('settings'): json_db['settings'] = {}
             json_db["settings"][d['setting']] = d['value']
@@ -1444,9 +1492,14 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
 
         elif type == "key":
             addr = public_key_to_bc_address(d['public_key'])
-            sec = SecretToASecret(PrivKeyToSecret(d['private_key']))
+            compressed = d['public_key'][0] != '\04'
+            sec = SecretToASecret(PrivKeyToSecret(d['private_key']), compressed)
             private_keys.append(sec)
-            json_db['keys'].append({'addr' : addr, 'sec' : sec})
+#            json_db['keys'].append({'addr' : addr, 'sec' : sec})
+            json_db['keys'].append({'addr' : addr, 'sec' : sec, 
+                'secret':PrivKeyToSecret(d['private_key']).encode('hex'),
+                'pubkey':d['public_key'].encode('hex'), 
+                'privkey':d['private_key'].encode('hex')})
 
         elif type == "wkey":
             if not json_db.has_key('wkey'): json_db['wkey'] = []
@@ -1523,15 +1576,16 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
             public_key = k['pubkey'].decode('hex')
             crypter.SetIV(Hash(public_key))
             secret = crypter.Decrypt(ckey)
-            sec = SecretToASecret(secret)
+            compressed = public_key[0] != '\04'
 
             if check:
                 check = False
-                pkey = regenerate_key(sec)
-                if public_key != GetPubKey(pkey):
+                pkey = EC_KEY(int('0x' + secret.encode('hex'), 16))
+                if public_key != GetPubKey(pkey, compressed):
                     logging.error("wrong password")
                     sys.exit(1)
 
+            sec = SecretToASecret(secret, compressed)
             k['sec'] = sec
             k['secret'] = secret.encode('hex')
             del(k['ckey'])
@@ -1543,17 +1597,20 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
     del(json_db['names'])
 
 def importprivkey(db, sec):
+
     pkey = regenerate_key(sec)
     if not pkey:
         return False
 
+    compressed = is_compressed(sec)
+
     secret = GetSecret(pkey)
-    private_key = GetPrivKey(pkey)
-    public_key = GetPubKey(pkey)
+    private_key = GetPrivKey(pkey, compressed)
+    public_key = GetPubKey(pkey, compressed)
     addr = public_key_to_bc_address(public_key)
 
     print "Address: %s" % addr
-    print "Privkey: %s" % SecretToASecret(secret)
+    print "Privkey: %s" % SecretToASecret(secret, compressed)
 
     global crypter, password, json_db
 
