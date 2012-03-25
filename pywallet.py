@@ -1495,11 +1495,11 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
             compressed = d['public_key'][0] != '\04'
             sec = SecretToASecret(PrivKeyToSecret(d['private_key']), compressed)
             private_keys.append(sec)
-#            json_db['keys'].append({'addr' : addr, 'sec' : sec})
-            json_db['keys'].append({'addr' : addr, 'sec' : sec, 
-                'secret':PrivKeyToSecret(d['private_key']).encode('hex'),
-                'pubkey':d['public_key'].encode('hex'), 
-                'privkey':d['private_key'].encode('hex')})
+            json_db['keys'].append({'addr' : addr, 'sec' : sec})
+#            json_db['keys'].append({'addr' : addr, 'sec' : sec, 
+#                'secret':PrivKeyToSecret(d['private_key']).encode('hex'),
+#                'pubkey':d['public_key'].encode('hex'), 
+#                'privkey':d['private_key'].encode('hex')})
 
         elif type == "wkey":
             if not json_db.has_key('wkey'): json_db['wkey'] = []
