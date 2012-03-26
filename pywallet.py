@@ -35,7 +35,7 @@ import hashlib
 import random
 import math
 
-max_version = 59900
+max_version = 60000
 addrtype = 0
 json_db = {}
 private_keys = []
