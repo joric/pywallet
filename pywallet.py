@@ -1681,7 +1681,7 @@ def main():
 
     read_wallet(json_db, db_env, True, True, "")
 
-    if json_db.get('minversion', json_db['version']) > max_version:
+    if json_db.get('minversion') > max_version:
         print "Version mismatch (must be <= %d)" % max_version
         exit(1)
 
