@@ -1682,15 +1682,15 @@ def main():
 
     read_wallet(json_db, db_env, True, True, "")
 
+    p2sh = json_db.get('minversion') >= 100000
+
     if options.dump:
-
-        if json_db.get('minversion') >= 100000:
-            if not options.testnet:
-                addrtype = 0x05
+        if p2sh and not options.testnet:
+            addrtype = 0x05
             for i in xrange(len(json_db['keys'])):
-                pub = json_db['keys'][i]['pubkey'].decode('hex')
-                json_db['keys'][i]['p2sh'] = public_key_to_bc_address('\x00\x14' + hash_160(pub))
-
+                if 'pubkey' in json_db['keys'][i].keys():
+                    pub = json_db['keys'][i]['pubkey'].decode('hex')
+                    json_db['keys'][i]['p2sh'] = public_key_to_bc_address('\x00\x14' + hash_160(pub))
         print json.dumps(json_db, sort_keys=True, indent=4)
 
     elif options.key:
