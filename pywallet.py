@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# PyWallet 1.2.1 (Public Domain)
+# PyWallet 1.2.2 (Public Domain)
 # http://github.com/joric/pywallet
 # Most of the actual PyWallet code placed in the public domain.
 # PyWallet includes portions of free software, listed below.
@@ -35,16 +35,17 @@ import hashlib
 import random
 import math
 
-max_version = 60000
 addrtype = 0
 json_db = {}
 private_keys = []
 password = None
+p2sh = False
 
 def determine_db_dir():
     import os
     import os.path
     import platform
+    global p2sh
     if platform.system() == "Darwin":
         return os.path.expanduser("~/Library/Application Support/Bitcoin/")
     elif platform.system() == "Windows":
@@ -987,7 +988,7 @@ def public_key_to_bc_address(public_key):
     return hash_160_to_bc_address(h160)
 
 def hash_160_to_bc_address(h160):
-    vh160 = chr(addrtype) + h160
+    vh160 = chr(addrtype+5 if p2sh else addrtype) + h160
     h = Hash(vh160)
     addr = vh160 + h[0:4]
     return b58encode(addr)
@@ -1136,9 +1137,11 @@ def deserialize_CAddress(d):
 def parse_BlockLocator(vds):
     d = { 'hashes' : [] }
     nHashes = vds.read_compact_size()
+    if nHashes==0:
+        d['hashes'].append(str('\0'*32))
     for i in xrange(nHashes):
         d['hashes'].append(vds.read_bytes(32))
-        return d
+    return d
 
 def deserialize_BlockLocator(d):
   result = "Block Locator top: "+d['hashes'][0][::-1].encode('hex_codec')
@@ -1464,7 +1467,7 @@ def rewrite_wallet(db_env, destFileName, pre_put_callback=None):
 # wallet.dat reader / writer
 
 def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transaction_filter):
-    global password
+    global password, p2sh
 
     db = open_wallet(db_env)
 
@@ -1495,11 +1498,8 @@ def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transa
             compressed = d['public_key'][0] != '\04'
             sec = SecretToASecret(PrivKeyToSecret(d['private_key']), compressed)
             private_keys.append(sec)
-            json_db['keys'].append({'addr' : addr, 'sec' : sec})
-#            json_db['keys'].append({'addr' : addr, 'sec' : sec, 
-#                'secret':PrivKeyToSecret(d['private_key']).encode('hex'),
-#                'pubkey':d['public_key'].encode('hex'), 
-#                'privkey':d['private_key'].encode('hex')})
+            pubkey = d['public_key']
+            json_db['keys'].append({'addr' : addr, 'sec' : sec, 'pubkey': pubkey.encode('hex')})
 
         elif type == "wkey":
             if not json_db.has_key('wkey'): json_db['wkey'] = []
@@ -1637,7 +1637,7 @@ from optparse import OptionParser
 
 def main():
 
-    global max_version, addrtype
+    global addrtype, p2sh
 
     parser = OptionParser(usage="%prog [options]", version="%prog 1.2")
 
@@ -1672,6 +1672,9 @@ def main():
         db_dir += "/testnet"
         addrtype = 111
 
+    if os.path.exists(db_dir+"/wallets"):
+        db_dir += "/wallets"
+
     db_env = create_env(db_dir)
 
     global password
@@ -1681,9 +1684,13 @@ def main():
 
     read_wallet(json_db, db_env, True, True, "")
 
-    if json_db.get('minversion') > max_version:
-        print "Version mismatch (must be <= %d)" % max_version
-        exit(1)
+    p2sh = json_db.get('minversion') >= 100000
+
+    if p2sh:
+        for i in xrange(len(json_db['keys'])):
+            key = json_db['keys'][i]
+            pub = key['pubkey'].decode('hex')
+            json_db['keys'][i]['addr'] = public_key_to_bc_address('\x00' + '\x14' + hash_160(pub))
 
     if options.dump:
         print json.dumps(json_db, sort_keys=True, indent=4)
