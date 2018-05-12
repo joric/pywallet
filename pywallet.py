@@ -39,13 +39,11 @@ addrtype = 0
 json_db = {}
 private_keys = []
 password = None
-p2sh = False
 
 def determine_db_dir():
     import os
     import os.path
     import platform
-    global p2sh
     if platform.system() == "Darwin":
         return os.path.expanduser("~/Library/Application Support/Bitcoin/")
     elif platform.system() == "Windows":
@@ -988,7 +986,7 @@ def public_key_to_bc_address(public_key):
     return hash_160_to_bc_address(h160)
 
 def hash_160_to_bc_address(h160):
-    vh160 = chr(addrtype+5 if p2sh else addrtype) + h160
+    vh160 = chr(addrtype) + h160
     h = Hash(vh160)
     addr = vh160 + h[0:4]
     return b58encode(addr)
@@ -1467,7 +1465,7 @@ def rewrite_wallet(db_env, destFileName, pre_put_callback=None):
 # wallet.dat reader / writer
 
 def read_wallet(json_db, db_env, print_wallet, print_wallet_transactions, transaction_filter):
-    global password, p2sh
+    global password
 
     db = open_wallet(db_env)
 
@@ -1637,7 +1635,7 @@ from optparse import OptionParser
 
 def main():
 
-    global addrtype, p2sh
+    global addrtype
 
     parser = OptionParser(usage="%prog [options]", version="%prog 1.2")
 
@@ -1684,15 +1682,15 @@ def main():
 
     read_wallet(json_db, db_env, True, True, "")
 
-    p2sh = json_db.get('minversion') >= 100000
-
-    if p2sh:
-        for i in xrange(len(json_db['keys'])):
-            key = json_db['keys'][i]
-            pub = key['pubkey'].decode('hex')
-            json_db['keys'][i]['addr'] = public_key_to_bc_address('\x00' + '\x14' + hash_160(pub))
-
     if options.dump:
+
+        if json_db.get('minversion') >= 100000:
+            if not options.testnet:
+                addrtype = 0x05
+            for i in xrange(len(json_db['keys'])):
+                pub = json_db['keys'][i]['pubkey'].decode('hex')
+                json_db['keys'][i]['p2sh'] = public_key_to_bc_address('\x00\x14' + hash_160(pub))
+
         print json.dumps(json_db, sort_keys=True, indent=4)
 
     elif options.key:
