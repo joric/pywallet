@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# PyWallet 1.2.2 (Public Domain)
+# PyWallet 1.2.3 (Public Domain)
 # http://github.com/joric/pywallet
 # Most of the actual PyWallet code placed in the public domain.
 # PyWallet includes portions of free software, listed below.
@@ -19,6 +19,10 @@
 # Copyright (c) 2008, Josh Davis (http://www.josh-davis.org), 
 # Alex Martelli (http://www.aleax.it)
 # Ported from C code written by Laurent Haan (http://www.progressive-coding.com)
+
+# Reference implementation for Bech32 and segwit addresses
+# https://github.com/sipa/bech32
+# Copyright (c) 2017 Pieter Wuille
 
 from bsddb.db import *
 import os, sys, time
@@ -49,6 +53,66 @@ def determine_db_dir():
     elif platform.system() == "Windows":
         return os.path.join(os.environ['APPDATA'], "Bitcoin")
     return os.path.expanduser("~/.bitcoin")
+
+# bech32 reference implementation, https://github.com/sipa/bech32 (segwit_addr.py)
+
+CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+def bech32_polymod(values):
+    """Internal function that computes the Bech32 checksum."""
+    generator = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    chk = 1
+    for value in values:
+        top = chk >> 25
+        chk = (chk & 0x1ffffff) << 5 ^ value
+        for i in range(5):
+            chk ^= generator[i] if ((top >> i) & 1) else 0
+    return chk
+
+def bech32_hrp_expand(hrp):
+    """Expand the HRP into values for checksum computation."""
+    return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+
+def bech32_create_checksum(hrp, data):
+    """Compute the checksum values given HRP and data."""
+    values = bech32_hrp_expand(hrp) + data
+    polymod = bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ 1
+    return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
+
+def bech32_encode(hrp, data):
+    """Compute a Bech32 string given HRP and data values."""
+    combined = data + bech32_create_checksum(hrp, data)
+    return hrp + '1' + ''.join([CHARSET[d] for d in combined])
+
+def convertbits(data, frombits, tobits, pad=True):
+    """General power-of-2 base conversion."""
+    acc = 0
+    bits = 0
+    ret = []
+    maxv = (1 << tobits) - 1
+    max_acc = (1 << (frombits + tobits - 1)) - 1
+    for value in data:
+        if value < 0 or (value >> frombits):
+            return None
+        acc = ((acc << frombits) | value) & max_acc
+        bits += frombits
+        while bits >= tobits:
+            bits -= tobits
+            ret.append((acc >> bits) & maxv)
+    if pad:
+        if bits:
+            ret.append((acc << (tobits - bits)) & maxv)
+    elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
+        return None
+    return ret
+
+def encode(hrp, witver, witprog):
+    """Encode a segwit address."""
+    ret = bech32_encode(hrp, [witver] + convertbits(witprog, 8, 5))
+    #if decode(hrp, ret) == (None, None):
+    #    return None
+    return ret
+
 
 # from the SlowAES project, http://code.google.com/p/slowaes (aes.py)
 
@@ -1683,14 +1747,23 @@ def main():
     read_wallet(json_db, db_env, True, True, "")
 
     p2sh = json_db.get('minversion') >= 100000
+    bech32 = json_db.get('minversion') >= 159900
 
     if options.dump:
-        if p2sh and not options.testnet:
-            addrtype = 0x05
+
+        if p2sh or bech32:
             for i in xrange(len(json_db['keys'])):
                 if 'pubkey' in json_db['keys'][i].keys():
                     pub = json_db['keys'][i]['pubkey'].decode('hex')
-                    json_db['keys'][i]['p2sh'] = public_key_to_bc_address('\x00\x14' + hash_160(pub))
+
+                    if p2sh:
+                        addrtype = 0xc4 if options.testnet else 0x05
+                        json_db['keys'][i]['p2sh'] = public_key_to_bc_address('\x00\x14' + hash_160(pub))
+
+                    if bech32:
+                        hrp = 'tb' if options.testnet else 'bc'
+                        json_db['keys'][i]['bech32'] = encode(hrp, 0, bytearray(hash_160(pub)))
+
         print json.dumps(json_db, sort_keys=True, indent=4)
 
     elif options.key:
